@@ -1,0 +1,106 @@
+ 
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Story Corpus Query</title>
+  <style>
+    #header {text-align: center;}
+    #queryBtn {font-size: 1.1em;}
+    #queryInput {font-size: 1.1em;}
+    #mainBody {display: flex; justify-content: center;}
+    .vam {vertical-align: middle;}
+    .excerpt {position: relative; max-width: 600px;}
+    .excerpt::before {content: "... "; color: #888888;}
+    .excerpt::after {content: " ..."; color: #888888;}
+    #resultTable {border-spacing: 20px 10px;}
+    #resultTable td:nth-child(1) {vertical-align: top;}
+    #resultTable td:nth-child(2) {max-width: 600px; vertical-align: top;}
+    #resultTable td:nth-child(3) {max-width: 257px;}
+    div.stacked {display: inline-block;}
+    div.titulum {text-align: center;}
+    #footer {font-size: smaller; text-align: center; }
+    #footer .sub {display:inline-block; border-top: 1px solid; padding: 8px 48px 0px 48px;}
+    #footer a {color: rgb(0,60,160); text-decoration-color: rgb(0,60,160);}
+  </style>
+</head>
+<body>
+  <div id="header">
+    <h2>Query the Lovecraftian Corpus</h2>
+    <div>
+      <input type="text" id="queryInput" placeholder="Ask a question...">
+      <button id="queryBtn">Send Query</button>
+    </div>
+    <br>
+    <span id="status"></span>
+  </div>
+  <br>
+  <div id="mainBody">
+    <table id="resultTable"><tbody></tbody></table>
+  </div>
+
+  <br>
+  <div id="footer"><div class="sub">
+    Text source: <a href="https://www.hplovecraft.com/writings/fiction/">The H. P. Lovecraft Archive</a>
+  </div></div>
+
+  <script type="module">
+
+    import { pipeline, env } from 'https://cdn.jsdelivr.net/npm/@xenova/transformers@2.17.2';
+    env.remoteHost = 'https://huggingface.co';
+    env.allowLocalModels = false;
+    env.allowRemoteModels = true;
+
+    const status = document.getElementById('status');
+
+    status.textContent = 'Loading corpus...';
+    const fables = await fetch('Lovecraft-stories.json').then(r => r.json());
+    const embResp = await fetch('Lovecraft_embeddings.json');
+    const embeddings = await embResp.json();
+
+    status.textContent = 'Loading model...';
+    const embedder = await pipeline('feature-extraction', 'Xenova/all-MiniLM-L6-v2');
+    status.textContent = 'Model ready.';
+
+    document.getElementById('queryBtn').addEventListener('click', async () => {
+      status.textContent = 'Generating embedding...';
+      if( queryInput.value.trim() == '') {
+        status.textContent = 'Query should not be empty...';
+        return;
+      }
+      const result = await embedder(queryInput.value, {pooling: 'mean', normalize: true});
+      const queryV =result.data;
+      const L = queryV.length;
+
+      status.innerHTML = `Query processed. Ready.`;
+
+      const scores = [];
+      for( let j=0; j<embeddings.length; j++ ) {
+        const vec = embeddings[j].vector;
+        const s = queryV.reduce((sum, val, i) => sum + val * vec[i], 0);
+        scores.push([s,j]);
+      }
+      scores.sort((a,b) => b[0]-a[0]);
+
+      document.querySelector('#resultTable tbody').innerHTML = '';
+      let itemN = 3;
+      for( let i = 0; i < Math.min(itemN, scores.length); i++ ) {
+        const j = scores[i][1];
+        const emb = embeddings[j];
+        const prodV = queryV.map((q,k) => q*emb.vector[k]);
+        let row = document.querySelector('#resultTable tbody').insertRow();
+        const c1 = row.insertCell();
+        c1.innerHTML = `<b>${scores[i][0].toFixed(4)}</b>`;
+        const c2 = row.insertCell();
+        c2.innerHTML = `<div class="titulum">${emb.title.trim()} &nbsp; [${emb.num+1}/${emb.count}]</div>`;
+        c2.innerHTML += `<br><span class="excerpt">${emb.text.replaceAll('\n','<br>')}</span>`;
+      }
+    });
+    
+    document.getElementById('queryInput').addEventListener('keypress', e => {
+      if( e.key === 'Enter' ) { document.getElementById('queryBtn').click(); }
+    });
+  </script>
+
+</body>
+</html>
